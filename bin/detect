@@ -5,4 +5,4 @@ BUILD_DIR=$1
 
 [[ -f $BUILD_DIR/Rakefile && -d $BUILD_DIR/db/migrate ]] || exit 1
 
-echo "Automigrate"
+echo "AutoMigrate"
