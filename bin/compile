@@ -1,22 +1,37 @@
 #!/usr/bin/env bash
-# bin/compile BUILD_DIR CACHE_DIR ENV_DIR
+# usage: bin/compile BUILD_DIR CACHE_DIR ENV_DIR
 
 BUILD_DIR=$1
 CACHE_DIR=$2
 ENV_DIR=$3
 
+# Helpers
 indent() {
-  sed -u 's/^/       /'
+  echo; echo "       $1"
 }
 
 arrow() {
   echo; echo "-----> $1"
 }
 
+die() {
+  echo; echo "!      $1"
+  exit 1
+}
+
+create_cache_dir() {
+  cache_dir=$1
+
+  [ -d "$cache_dir" ] ||
+    mkdir "$cache_dir" ||
+    die "Error creating cache directory at $cache_dir, aborting"
+}
+
 export_env_dir() {
   env_dir=$1
   whitelist_regex=${2:-''}
   blacklist_regex=${3:-'^(PATH|GIT_DIR|CPATH|CPPATH|LD_PRELOAD|LIBRARY_PATH)$'}
+
   if [ -d "$env_dir" ]; then
     for e in $(ls $env_dir); do
       echo "$e" | grep -E "$whitelist_regex" | grep -qvE "$blacklist_regex" &&
@@ -25,8 +40,34 @@ export_env_dir() {
   fi
 }
 
+run_db_migrate() {
+  indent "Running rake db:migrate"
+  bundle exec rake db:migrate
+}
+
+# Main
+cd $BUILD_DIR
 export_env_dir $ENV_DIR
 
-cd $BUILD_DIR
-arrow "Running rake db:migrate"
-bundle exec rake db:migrate
+cached="$CACHE_DIR"/migrations
+current=`mktemp /tmp/migrations.XXXXXX`
+ls -1 db/migrate/ > $current
+
+if [ -f $cached ]; then
+  arrow "Checking for new migrations..."
+  diff $current $cached &> /dev/null
+
+  if [ $? -eq 0 ]; then
+    indent "No new migrations detected, nothing to do!"
+    rm -f $current
+  else
+    run_db_migrate
+    mv $current $cached
+  fi
+else
+  arrow "First run, creating migration cache..."
+  run_db_migrate
+  mv $current $cached
+fi
+
+exit 0
